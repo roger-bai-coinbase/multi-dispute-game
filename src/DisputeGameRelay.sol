@@ -27,6 +27,7 @@ import {
 // Interfaces
 import { IRelayAnchorStateRegistry } from "src/interfaces/IRelayAnchorStateRegistry.sol";
 import { IDisputeGame, IDisputeGameFactory } from "optimism/src/dispute/AnchorStateRegistry.sol";
+import { IKailuaTreasury } from "src/interfaces/IKailua.sol";
 
 contract DisputeGameRelay is Clone {
     ////////////////////////////////////////////////////////////////
@@ -37,6 +38,12 @@ contract DisputeGameRelay is Clone {
     struct RelayConstructorParams {
         IRelayAnchorStateRegistry anchorStateRegistry;
         uint256 l2ChainId;
+    }
+
+    /// @notice For stack too deep error
+    struct DeployUnderlyingGames {
+        GameType previousGameType;
+        IDisputeGame game;
     }
 
     ////////////////////////////////////////////////////////////////
@@ -53,6 +60,9 @@ contract DisputeGameRelay is Clone {
 
     /// @notice The game type ID.
     GameType constant GAME_TYPE = GameType.wrap(type(uint32).max);
+
+    /// @notice The Kailua game type ID.
+    GameType constant KAILUA_GAME_TYPE = GameType.wrap(1337);
 
     /// @notice The anchor state registry.
     IRelayAnchorStateRegistry internal immutable ANCHOR_STATE_REGISTRY;
@@ -177,15 +187,22 @@ contract DisputeGameRelay is Clone {
 
         // Deploy underlying dispute games
         bytes[] memory extraData_ = extraDataArray();
-        GameType prevGameType = GAME_TYPE; // relay game type is uint32.max
+        DeployUnderlyingGames memory underlyingGame = DeployUnderlyingGames({previousGameType: GAME_TYPE, game: IDisputeGame(address(0))}); // relay game type is uint32.max
         for (uint256 i = 0; i < gameTypes_.length; i++) { 
             // Prevent duplicate game types
-            require(prevGameType.raw() > gameTypes_[i].raw(), "Game types must be in descending order");
-            prevGameType = gameTypes_[i];
+            require(underlyingGame.previousGameType.raw() > gameTypes_[i].raw(), "Game types must be in descending order");
+            underlyingGame.previousGameType = gameTypes_[i];
 
-            IDisputeGame game = DISPUTE_GAME_FACTORY.create{ value: DISPUTE_GAME_FACTORY.initBonds(gameTypes_[i]) }(gameTypes_[i], rootClaim(), extraData_[i]);
-            require(game.l2SequenceNumber() == l2SequenceNumber(), "L2 sequence number must match");
-            _underlyingDisputeGames.push(address(game));
+            if (gameTypes_[i].raw() == KAILUA_GAME_TYPE.raw()) {
+                IDisputeGame kailuaGame = DISPUTE_GAME_FACTORY.gameImpls(KAILUA_GAME_TYPE);
+                IKailuaTreasury kailuaTreasury = IKailuaTreasury(address(kailuaGame)).KAILUA_TREASURY();
+                underlyingGame.game = IDisputeGame(kailuaTreasury.propose{ value: kailuaTreasury.participationBond() }(rootClaim(), extraData_[i]));
+            } else {
+                underlyingGame.game = DISPUTE_GAME_FACTORY.create{ value: DISPUTE_GAME_FACTORY.initBonds(gameTypes_[i]) }(gameTypes_[i], rootClaim(), extraData_[i]);
+            }
+
+            require(underlyingGame.game.l2SequenceNumber() == l2SequenceNumber(), "L2 sequence number must match");
+            _underlyingDisputeGames.push(address(underlyingGame.game));
         }
         require(address(this).balance == 0, "Incorrect bond amount");
     }
@@ -247,7 +264,7 @@ contract DisputeGameRelay is Clone {
     /// @dev The reference impl should be entirely different depending on the type (fault, validity)
     ///      i.e. The game type should indicate the security model.
     /// @return gameType_ The type of proof system being used.
-    function gameType() public view returns (GameType gameType_) {
+    function gameType() public pure returns (GameType gameType_) {
         gameType_ = GAME_TYPE;
     }
 
@@ -330,7 +347,7 @@ contract DisputeGameRelay is Clone {
     /// @return gameType_ The type of proof system being used.
     /// @return rootClaim_ The root claim of the DisputeGame.
     /// @return extraData_ Any extra data supplied to the dispute game contract by the creator.
-    function gameData() external view returns (GameType gameType_, Claim rootClaim_, bytes memory extraData_) {
+    function gameData() external pure returns (GameType gameType_, Claim rootClaim_, bytes memory extraData_) {
         gameType_ = gameType();
         rootClaim_ = rootClaim();
         extraData_ = extraData();

@@ -1,0 +1,16 @@
+diff --git a/crates/contracts/foundry/src/KailuaTournament.sol b/crates/contracts/foundry/src/KailuaTournament.sol
+index 79b52551..c38afc20 100644
+--- a/crates/contracts/foundry/src/KailuaTournament.sol
++++ b/crates/contracts/foundry/src/KailuaTournament.sol
+@@ -273,6 +273,11 @@ abstract contract KailuaTournament is Clone, IDisputeGame {
+         l2BlockNumber_ = uint256(_getArgUint64(0x54));
+     }
+ 
++    /// @notice The l2SequenceNumber of the disputed output root in the `L2OutputOracle` (in this case - block number).
++    function l2SequenceNumber() public pure returns (uint256 l2SequenceNumber_) {
++        l2SequenceNumber_ = l2BlockNumber();
++    }
++    
+     /// @inheritdoc IDisputeGame
+     function gameData() external view returns (GameType gameType_, Claim rootClaim_, bytes memory extraData_) {
+         gameType_ = GAME_TYPE;

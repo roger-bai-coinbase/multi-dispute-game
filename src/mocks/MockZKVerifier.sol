@@ -5,7 +5,7 @@ import { IZKVerifier } from "../interfaces/IZKVerifier.sol";
 import { Claim } from "optimism/src/dispute/lib/Types.sol";
 
 contract MockZKVerifier is IZKVerifier {
-    function verify(bytes calldata, Claim, uint256) external pure returns (bool) {
+    function verify(bytes calldata, bytes32, bytes32) external pure returns (bool) {
         return true;
     }
 }

@@ -9,15 +9,20 @@ install-foundry:
 	~/.foundry/bin/foundryup
 
 .PHONY: deps
-deps: clean-lib checkout-op-commit
+deps: clean-lib checkout-op-commit patch-kailua
 	forge install --no-git github.com/foundry-rs/forge-std \
 		github.com/OpenZeppelin/openzeppelin-contracts@v4.9.3 \
 		github.com/OpenZeppelin/openzeppelin-contracts-upgradeable@v4.7.3 \
 		github.com/rari-capital/solmate@8f9b23f8838670afda0fd8983f2c41e8037ae6bc \
 		github.com/Vectorized/solady@862a0afd3e66917f50e987e91886b9b90c4018a1 \
 		github.com/ethereum-optimism/lib-keccak@3b1e7bbb4cc23e9228097cfebe42aedaf3b8f2b9 \
-		github.com/base/op-enclave@6b67399eff20153ffeb735a07c2253bac2567a5b \
-		github.com/risc0/kailua@598309b2913ce41cb8fbcaf5edf9dbdabc469d0e
+		github.com/base/op-enclave@6b67399eff20153ffeb735a07c2253bac2567a5b
+
+.PHONY: build
+build:
+	forge build; \
+	cd lib/kailua/crates/contracts/foundry; \
+	forge build
 
 .PHONY: test
 test:
@@ -26,6 +31,12 @@ test:
 .PHONY: clean-lib
 clean-lib:
 	rm -rf lib
+
+.PHONY: patch-kailua
+patch-kailua:
+	forge install github.com/risc0/kailua@e3381e7fde2d3b11d7087a41d85b0b12a0cd4b51; \
+	cd lib/kailua/; \
+	git apply ../../patch/kailua.patch
 
 .PHONY: checkout-op-commit
 checkout-op-commit:

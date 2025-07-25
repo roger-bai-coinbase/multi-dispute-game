@@ -5,6 +5,7 @@ libs = ["lib"]
 optimizer = true
 optimizer_runs = 999999
 via-ir = true
+fs_permissions = [{ access = "read", path = "./"}]
 remappings = [
     'optimism/=lib/optimism/packages/contracts-bedrock/',
     '@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts',

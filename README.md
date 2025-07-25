@@ -24,7 +24,7 @@ $ make deps
 ### Build
 
 ```shell
-$ forge build
+$ make build
 ```
 
 ### Test

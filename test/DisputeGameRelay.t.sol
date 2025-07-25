@@ -4,7 +4,6 @@ pragma solidity ^0.8.0;
 import { Test, console2 } from "forge-std/Test.sol";
 
 // Relay Contracts
-// import { DisputeGameRelayFactory } from "src/DisputeGameRelayFactory.sol";
 import { RelayGameType, RelayAnchorStateRegistry } from "src/RelayAnchorStateRegistry.sol";
 import { DisputeGameRelay } from "src/DisputeGameRelay.sol";
 import { IRelayAnchorStateRegistry } from "src/interfaces/IRelayAnchorStateRegistry.sol";
@@ -26,6 +25,9 @@ import { GameType, Duration, Claim, GameStatus } from "optimism/src/dispute/lib/
 import { ISystemConfig, IDisputeGameFactory, Hash, Proposal } from "optimism/src/dispute/AnchorStateRegistry.sol";
 import { DelayedWETH } from "optimism/src/dispute/DelayedWETH.sol";
 import { GameNotFinalized } from "optimism/src/dispute/lib/Errors.sol";
+
+// Kailua
+import { IKailuaTournament, IKailuaTreasury, IKailuaGame } from "src/interfaces/IKailua.sol";
 
 // OpenZeppelin
 import { ProxyAdmin } from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
@@ -51,7 +53,8 @@ contract DisputeGameRelayTest is Test {
     // Game types
     GameType public constant FAULT_DISPUTE_GAME_TYPE = GameType.wrap(0);
     GameType public constant TEE_GAME_TYPE = GameType.wrap(733);
-    GameType public constant ZK_DISPUTE_GAME_TYPE = GameType.wrap(1337); // Kailua
+    GameType public constant ZK_DISPUTE_GAME_TYPE = GameType.wrap(1336);
+    GameType public constant KAILUA_GAME_TYPE = GameType.wrap(1337);
     GameType public constant RELAY_GAME_TYPE = GameType.wrap(type(uint32).max);
 
     // Bond amounts
@@ -70,6 +73,7 @@ contract DisputeGameRelayTest is Test {
         _deployAndSetFaultDisputeGame();
         _deployAndSetTEEDisputeGame();
         _deployAndSetZKDisputeGame();
+        _deployAndSetKailuaGame();
         _deployAndSetDisputeGameRelay();
 
         // Set the timestamp to after the retirement timestamp
@@ -121,7 +125,7 @@ contract DisputeGameRelayTest is Test {
         assertEq(relayGame.extraData(), expectedExtraData);
     }
 
-    function test2of3TEEAndZK() public {
+    function test2of3TEEAndMockZK() public {
         RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
         relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
         relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: false});
@@ -291,6 +295,54 @@ contract DisputeGameRelayTest is Test {
         assert(faultGameProxy.bondDistributionMode() == BondDistributionMode.NORMAL);
     }
 
+    function test2of3TEEAndKailua() public {
+        // Deploy the relay game
+        RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
+        relayGameTypes[0] = RelayGameType({gameType: KAILUA_GAME_TYPE, required: false});
+        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: false});
+        relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
+
+        uint256 l2SequenceNumber = 1;
+        bytes[] memory underlyingExtraData = new bytes[](3);
+        underlyingExtraData[0] = abi.encodePacked(uint64(l2SequenceNumber), uint64(0), uint64(0));
+        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
+        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
+
+        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
+
+        // kailua, tee, fault
+        address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
+
+        IKailuaGame kailuaGameProxy = IKailuaGame(underlyingDisputeGames[0]);
+        MockTEEDisputeGame teeGameProxy = MockTEEDisputeGame(underlyingDisputeGames[1]);
+
+        // resolve kailua game
+        IKailuaTournament parentGame = kailuaGameProxy.parentGame();
+        parentGame.proveValidity(address(this), address(kailuaGameProxy), 0, "");
+        kailuaGameProxy.resolve();
+
+        // resolve tee game
+        outputOracle.proposeL2Output(keccak256("1"), 1, 1, "");
+        teeGameProxy.resolve(0);
+
+        // resolve relay game
+        relayGame.resolve();
+
+        // check that the relay game is finalized
+        assert(relayGame.status() == GameStatus.DEFENDER_WINS);
+
+        // cannot close yet
+        vm.expectRevert(abi.encodeWithSelector(GameNotFinalized.selector));
+        relayGame.closeGame();
+
+        // close relay game
+        vm.warp(block.timestamp + 1 days + 1);
+        relayGame.closeGame();
+
+        // check anchor state updated
+        assert(address(anchorStateRegistry.anchorGame()) == address(relayGame));
+    }
+
     function _deployContractsAndProxies() internal {
         // Deploy the system config
         systemConfig = new MockSystemConfig();
@@ -403,12 +455,48 @@ contract DisputeGameRelayTest is Test {
         );
 
         // Set the implementation for the ZKDisputeGame 
-        factory.setImplementation(GameType.wrap(1337), IDisputeGame(address(zkDisputeGameImpl)));
+        factory.setImplementation(ZK_DISPUTE_GAME_TYPE, IDisputeGame(address(zkDisputeGameImpl)));
 
         // Set the bond amount for the ZKDisputeGame
-        factory.setInitBond(GameType.wrap(1337), ZK_DISPUTE_GAME_BOND_AMOUNT);
+        factory.setInitBond(ZK_DISPUTE_GAME_TYPE, ZK_DISPUTE_GAME_BOND_AMOUNT);
 
         anchorStateRegistry.setFinalityDelay(ZK_DISPUTE_GAME_TYPE, ZK_DISPUTE_GAME_FINALIZATION_DELAY_SECONDS);
+    }
+
+    function _deployAndSetKailuaGame() internal {
+        // Deploy the Kailua treasury implementation
+        address kailuaTreasuryImpl = deployCode(
+            "lib/kailua/crates/contracts/foundry/out/KailuaTreasury.sol/KailuaTreasury.json", 
+            abi.encode(address(verifier), // verifier
+            bytes32(0), // imageId
+            bytes32(0), // configHash
+            1, // proposalOutputCount
+            1, // outputBlockSpan
+            KAILUA_GAME_TYPE, 
+            address(anchorStateRegistry), 
+            Claim.wrap(0), // rootClaim
+            0)); // l2BlockNumber
+
+        // Deploy the Kailua game implementation
+        address kailuaGameImpl = deployCode(
+            "lib/kailua/crates/contracts/foundry/out/KailuaGame.sol/KailuaGame.json", 
+            abi.encode(address(kailuaTreasuryImpl), 
+            block.timestamp, // genesisTimeStamp
+            0, // l2BlockTime
+            Duration.wrap(3600))); // maxClockDuration
+
+        // Set the implementation for the Kailua treasury
+        factory.setImplementation(KAILUA_GAME_TYPE, IDisputeGame(kailuaTreasuryImpl));
+
+        // Initial proposal
+        address kailuaTournament = IKailuaTreasury(kailuaTreasuryImpl).propose(Claim.wrap(0), abi.encodePacked(uint64(0), kailuaTreasuryImpl));
+        IKailuaTreasury(kailuaTournament).resolve();
+
+        // Set bond and Kailua game
+        IKailuaTreasury(kailuaTreasuryImpl).setParticipationBond(ZK_DISPUTE_GAME_BOND_AMOUNT);
+        factory.setImplementation(KAILUA_GAME_TYPE, IDisputeGame(kailuaGameImpl));
+
+        anchorStateRegistry.setFinalityDelay(KAILUA_GAME_TYPE, ZK_DISPUTE_GAME_FINALIZATION_DELAY_SECONDS);
     }
 
     function _deployAndSetDisputeGameRelay() internal {

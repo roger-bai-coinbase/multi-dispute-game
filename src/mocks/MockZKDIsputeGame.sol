@@ -192,7 +192,7 @@ contract MockZKDisputeGame is Clone {
         // INVARIANT: Resolution cannot occur unless the game is currently in progress.
         if (status != GameStatus.IN_PROGRESS) revert GameNotInProgress();
 
-        require(verifier.verify(_proof, rootClaim(), l2SequenceNumber()), "ZK: Invalid proof");
+        require(verifier.verify(_proof, rootClaim().raw(), bytes32(l2SequenceNumber())), "ZK: Invalid proof");
 
         status_ = GameStatus.DEFENDER_WINS;
 
@@ -207,7 +207,7 @@ contract MockZKDisputeGame is Clone {
         require(resolvedAt.raw() != 0, "ZK: Game not resolved");
         require(block.timestamp - resolvedAt.raw() < finalizationDelay, "ZK: Game finalized");
 
-        require(verifier.verify(_proof, _rootClaim, l2SequenceNumber()), "ZK: Invalid proof");
+        require(verifier.verify(_proof, _rootClaim.raw(), bytes32(l2SequenceNumber())), "ZK: Invalid proof");
 
         status = GameStatus.CHALLENGER_WINS;
 
