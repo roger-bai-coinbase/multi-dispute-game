@@ -1,0 +1,26 @@
+diff --git a/packages/contracts-bedrock/src/dispute/AnchorStateRegistry.sol b/packages/contracts-bedrock/src/dispute/AnchorStateRegistry.sol
+index 87f747400..26ac13eaf 100644
+--- a/packages/contracts-bedrock/src/dispute/AnchorStateRegistry.sol
++++ b/packages/contracts-bedrock/src/dispute/AnchorStateRegistry.sol
+@@ -273,7 +273,7 @@ contract AnchorStateRegistry is ProxyAdminOwnedBase, Initializable, Reinitializa
+     /// @notice Returns whether a game is finalized.
+     /// @param _game The game to check.
+     /// @return Whether the game is finalized.
+-    function isGameFinalized(IDisputeGame _game) public view returns (bool) {
++    function isGameFinalized(IDisputeGame _game) public view virtual returns (bool) {
+         // Game must be resolved.
+         if (!isGameResolved(_game)) {
+             return false;
+diff --git a/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol b/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol
+index 3453d752c..7581db157 100644
+--- a/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol
++++ b/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol
+@@ -195,7 +195,7 @@ contract DisputeGameFactory is ProxyAdminOwnedBase, ReinitializableBase, Ownable
+     function getGameUUID(
+         GameType _gameType,
+         Claim _rootClaim,
+-        bytes calldata _extraData
++        bytes memory _extraData
+     )
+         public
+         pure
