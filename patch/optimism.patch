@@ -11,16 +11,3 @@ index 87f747400..26ac13eaf 100644
          // Game must be resolved.
          if (!isGameResolved(_game)) {
              return false;
-diff --git a/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol b/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol
-index 3453d752c..7581db157 100644
---- a/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol
-+++ b/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol
-@@ -195,7 +195,7 @@ contract DisputeGameFactory is ProxyAdminOwnedBase, ReinitializableBase, Ownable
-     function getGameUUID(
-         GameType _gameType,
-         Claim _rootClaim,
--        bytes calldata _extraData
-+        bytes memory _extraData
-     )
-         public
-         pure
