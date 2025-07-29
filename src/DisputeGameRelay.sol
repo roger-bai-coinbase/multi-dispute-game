@@ -61,9 +61,6 @@ contract DisputeGameRelay is Clone {
     /// @notice The game type ID.
     GameType constant GAME_TYPE = GameType.wrap(type(uint32).max);
 
-    /// @notice The Kailua game type ID.
-    GameType constant KAILUA_GAME_TYPE = GameType.wrap(1337);
-
     /// @notice The anchor state registry.
     IRelayAnchorStateRegistry internal immutable ANCHOR_STATE_REGISTRY;
 
@@ -133,23 +130,19 @@ contract DisputeGameRelay is Clone {
         // in the factory, but are not used by the game, which would allow for multiple dispute games for the same
         // output proposal to be created.
         //
-        // Expected length: 0x5A + extra data length
+        // Expected length: 0x9A + 0x20 * # of game indices
         // - 0x04 selector
         // - 0x14 creator address
         // - 0x20 root claim
         // - 0x20 l1 head
-        // - 0x20 l2 sequence number
-        // - 0x20 # of game types
-        // - 0x04 * # of game types
-        // - 0x20 extra data length 1
-        // - n extra data 1
-        // - 0x20 extra data length 2
-        // - n extra data 2
-        // - ...
+        // - extra data:
+        //    - 0x20 l2 sequence number
+        //    - 0x20 # of game indices
+        //    - 0x20 * # of game indices
         // - 0x02 CWIA bytes
-        uint256 extraDataLength_ = extraDataLength();
+        uint256 numberOfGameIndices = numberOfUnderlyingGames();
         assembly {
-            if iszero(eq(calldatasize(), add(0x5A, extraDataLength_))) {
+            if iszero(eq(calldatasize(), add(0x9A, mul(0x20, numberOfGameIndices)))) {
                 // Store the selector for `BadExtraData()` & revert
                 mstore(0x00, 0x9824bdab)
                 revert(0x1C, 0x04)
@@ -166,9 +159,22 @@ contract DisputeGameRelay is Clone {
         // Set the game's starting timestamp
         createdAt = Timestamp.wrap(uint64(block.timestamp));
 
+        GameType[] memory gameTypes_ = new GameType[](numberOfUnderlyingGames());
+        GameType previousGameType = GAME_TYPE;
+        // Check and store the underlying dispute games
+        for (uint256 i = 0; i < numberOfUnderlyingGames(); i++) {
+            (GameType gameType_, , IDisputeGame game) = DISPUTE_GAME_FACTORY.gameAtIndex(gameIndices()[i]);
+            require(game.l2SequenceNumber() == l2SequenceNumber(), "L2 sequence number must match");
+            require(game.rootClaim().raw() == rootClaim().raw(), "Root claim must match");
+            require(gameType_.raw() < previousGameType.raw(), "Game types must be in descending order");
+            previousGameType = gameType_;
+
+            _underlyingDisputeGames.push(address(game));
+            gameTypes_[i] = gameType_;
+        }
+
         // Set whether the game type was respected when the game was created.
         RelayGameType[] memory relayGameTypes = ANCHOR_STATE_REGISTRY.relayGameTypes();
-        GameType[] memory gameTypes_ = gameTypes();
 
         // Respected if:
         // - The game type in the anchor state registry is relay
@@ -184,27 +190,6 @@ contract DisputeGameRelay is Clone {
                 break;
             }
         }
-
-        // Deploy underlying dispute games
-        bytes[] memory extraData_ = extraDataArray();
-        DeployUnderlyingGames memory underlyingGame = DeployUnderlyingGames({previousGameType: GAME_TYPE, game: IDisputeGame(address(0))}); // relay game type is uint32.max
-        for (uint256 i = 0; i < gameTypes_.length; i++) { 
-            // Prevent duplicate game types
-            require(underlyingGame.previousGameType.raw() > gameTypes_[i].raw(), "Game types must be in descending order");
-            underlyingGame.previousGameType = gameTypes_[i];
-
-            if (gameTypes_[i].raw() == KAILUA_GAME_TYPE.raw()) {
-                IDisputeGame kailuaGame = DISPUTE_GAME_FACTORY.gameImpls(KAILUA_GAME_TYPE);
-                IKailuaTreasury kailuaTreasury = IKailuaTreasury(address(kailuaGame)).KAILUA_TREASURY();
-                underlyingGame.game = IDisputeGame(kailuaTreasury.propose{ value: kailuaTreasury.participationBond() }(rootClaim(), extraData_[i]));
-            } else {
-                underlyingGame.game = DISPUTE_GAME_FACTORY.create{ value: DISPUTE_GAME_FACTORY.initBonds(gameTypes_[i]) }(gameTypes_[i], rootClaim(), extraData_[i]);
-            }
-
-            require(underlyingGame.game.l2SequenceNumber() == l2SequenceNumber(), "L2 sequence number must match");
-            _underlyingDisputeGames.push(address(underlyingGame.game));
-        }
-        require(address(this).balance == 0, "Incorrect bond amount");
     }
 
     /// @notice The l2BlockNumber of the disputed output root in the `L2OutputOracle`.
@@ -241,12 +226,11 @@ contract DisputeGameRelay is Clone {
         if (status != GameStatus.IN_PROGRESS) revert GameNotInProgress();
 
         // Collect game statuses and types
-        address[] memory gameProxies_ = _underlyingDisputeGames;
-        GameStatus[] memory statuses = new GameStatus[](gameProxies_.length);
-        GameType[] memory gameTypes_ = new GameType[](gameProxies_.length);
+        GameStatus[] memory statuses = new GameStatus[](numberOfUnderlyingGames());
+        GameType[] memory gameTypes_ = new GameType[](numberOfUnderlyingGames());
         
-        for (uint256 i = 0; i < gameProxies_.length; i++) {
-            IDisputeGame game = IDisputeGame(gameProxies_[i]);
+        for (uint256 i = 0; i < numberOfUnderlyingGames(); i++) {
+            IDisputeGame game = IDisputeGame(_underlyingDisputeGames[i]);
             statuses[i] = GameStatus(uint256(game.status()));
             gameTypes_[i] = game.gameType();
         }
@@ -296,48 +280,21 @@ contract DisputeGameRelay is Clone {
         numberOfUnderlyingGames_ = _getArgUint256(0x74);
     }
 
-    /// @notice Getter for the game types.
-    /// @dev `clones-with-immutable-args` argument #6
-    /// @return gameTypes_ The game types.
-    function gameTypes() public pure returns (GameType[] memory gameTypes_) {
-        uint256 gameTypesLength = numberOfUnderlyingGames();
-        gameTypes_ = new GameType[](gameTypesLength);
-        for (uint256 i = 0; i < gameTypesLength; i++) {
-            gameTypes_[i] = GameType.wrap(_getArgUint32(0x94 + i * 0x04));
-        }
-    }
-
-    /// @notice Getter for the extra data array.
-    /// @dev `clones-with-immutable-args` argument #7
-    /// @return extraDataArray_ The extra data array.
-    function extraDataArray() public pure returns (bytes[] memory extraDataArray_) {
-        extraDataArray_ = new bytes[](numberOfUnderlyingGames());
-        uint256 extraDataLengthOffset = 0x94 + numberOfUnderlyingGames() * 0x04;
-        uint256 extraDataLength_ = _getArgUint256(extraDataLengthOffset);
-
-        for (uint256 i = 0; i < numberOfUnderlyingGames(); i++) {
-            extraDataArray_[i] = _getArgBytes(extraDataLengthOffset + 0x20, extraDataLength_);
-            extraDataLengthOffset += 0x20 + extraDataLength_;
-            extraDataLength_ = _getArgUint256(extraDataLengthOffset);
-        }
-    }
-
-    /// @notice Getter for the extra data length.
-    /// @return extraDataLength_ The extra data length.
-    function extraDataLength() public pure returns (uint256 extraDataLength_) {
-        extraDataLength_ = 0x40 + numberOfUnderlyingGames() * 0x04;
-        uint256 extraDataLengthOffset = 0x94 + numberOfUnderlyingGames() * 0x04;
-        for (uint256 i = 0; i < numberOfUnderlyingGames(); i++) {
-            uint256 extraLength = _getArgUint256(extraDataLengthOffset);
-            extraDataLength_ += 0x20 + extraLength;
-            extraDataLengthOffset += 0x20 + extraLength;
+    function gameIndices() public pure returns (uint256[] memory gameIndices_) {
+        uint256 numberOfGameIndices = numberOfUnderlyingGames();
+        gameIndices_ = new uint256[](numberOfGameIndices);
+        for (uint256 i = 0; i < numberOfGameIndices; i++) {
+            gameIndices_[i] = _getArgUint256(0x94 + i * 0x20);
         }
     }
 
     /// @notice Getter for the extra data.
     /// @return extraData_ Any extra data supplied to the dispute game contract by the creator.
     function extraData() public pure returns (bytes memory extraData_) {
-        extraData_ = _getArgBytes(0x54, extraDataLength());
+        // 0x20 l2 sequence number
+        // 0x20 # of game indices
+        // 0x20 * # of game indices
+        extraData_ = _getArgBytes(0x54, 0x40 + 0x20 * numberOfUnderlyingGames());
     }
 
     /// @notice A compliant implementation of this interface should return the components of the

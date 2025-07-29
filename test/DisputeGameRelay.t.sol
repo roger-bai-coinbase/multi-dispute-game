@@ -36,6 +36,7 @@ import { TransparentUpgradeableProxy } from "@openzeppelin/contracts/proxy/trans
 contract DisputeGameRelayTest is Test {
     DisputeGameFactory public factory;
     RelayAnchorStateRegistry public anchorStateRegistry;
+    IKailuaTreasury public kailuaTreasury;
 
     MockOutputOracle public outputOracle;
     MockVM public bigStepper;
@@ -61,6 +62,7 @@ contract DisputeGameRelayTest is Test {
     uint256 public constant FAULT_DISPUTE_GAME_BOND_AMOUNT = 0.1 ether;
     uint256 public constant ZK_DISPUTE_GAME_BOND_AMOUNT = 0.1 ether;
 
+    // Total bond amount
     uint256 public constant TOTAL_BOND_AMOUNT = FAULT_DISPUTE_GAME_BOND_AMOUNT + ZK_DISPUTE_GAME_BOND_AMOUNT;
     
     uint256 public constant L2_CHAIN_ID = 8453;
@@ -86,43 +88,35 @@ contract DisputeGameRelayTest is Test {
         relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
         relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: false});
         relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
-        
+
         uint256 l2SequenceNumber = 1;
-        bytes[] memory underlyingExtraData = new bytes[](3);
-        underlyingExtraData[0] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
+        Claim claim = Claim.wrap(keccak256("1"));
+        bytes memory extraData = abi.encode(l2SequenceNumber);
 
-        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
+        uint256[] memory gameIndices = new uint256[](3);    
+        gameIndices[0] = _deployGameThroughFactory(ZK_DISPUTE_GAME_TYPE, claim, extraData);
+        gameIndices[1] = _deployGameThroughFactory(TEE_GAME_TYPE, claim, extraData);
+        gameIndices[2] = _deployGameThroughFactory(FAULT_DISPUTE_GAME_TYPE, claim, extraData);
 
-        bytes32 claim = keccak256("1");
+        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, claim, l2SequenceNumber, gameIndices, 2);
 
         // Check that the relay game was created
         assertEq(relayGame.l2SequenceNumber(), l2SequenceNumber);
-        assertEq(Claim.unwrap(relayGame.rootClaim()), claim);
-        assertEq(relayGame.numberOfUnderlyingGames(), 3);
+        assertEq(Claim.unwrap(relayGame.rootClaim()), Claim.unwrap(claim));
         assertTrue(relayGame.wasRespectedGameTypeWhenCreated());
 
-        for (uint256 i = 0; i < relayGameTypes.length; i++) {
-            assertEq(relayGame.gameTypes()[i].raw(), relayGameTypes[i].gameType.raw());
-        }
+        bytes memory expectedExtraData = abi.encodePacked(l2SequenceNumber, gameIndices.length, gameIndices);
 
-        for (uint256 i = 0; i < underlyingExtraData.length; i++) {
-            assertEq(relayGame.extraDataArray()[i], underlyingExtraData[i]);
-        }
-
-        bytes memory expectedExtraData = abi.encodePacked(l2SequenceNumber, relayGameTypes.length);
-
-        for (uint256 i = 0; i < relayGameTypes.length; i++) {
-            expectedExtraData = abi.encodePacked(expectedExtraData, relayGameTypes[i].gameType);
-        }
-
-        for (uint256 i = 0; i < underlyingExtraData.length; i++) {
-            expectedExtraData = abi.encodePacked(expectedExtraData, underlyingExtraData[i].length, underlyingExtraData[i]);
-        }
-
-        assertEq(relayGame.extraDataLength(), expectedExtraData.length);
         assertEq(relayGame.extraData(), expectedExtraData);
+
+        // Check that the underlying games were created
+        address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
+        assertEq(underlyingDisputeGames.length, gameIndices.length);
+        for (uint256 i = 0; i < underlyingDisputeGames.length; i++) {
+            assertEq(GameType.unwrap(IDisputeGame(underlyingDisputeGames[i]).gameType()), GameType.unwrap(relayGameTypes[i].gameType));
+            assertEq(IDisputeGame(underlyingDisputeGames[i]).l2SequenceNumber(), l2SequenceNumber);
+            assertEq(Claim.unwrap(IDisputeGame(underlyingDisputeGames[i]).rootClaim()), Claim.unwrap(claim));
+        }
     }
 
     function test2of3TEEAndMockZK() public {
@@ -132,12 +126,15 @@ contract DisputeGameRelayTest is Test {
         relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
 
         uint256 l2SequenceNumber = 1;
-        bytes[] memory underlyingExtraData = new bytes[](3);
-        underlyingExtraData[0] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
+        Claim claim = Claim.wrap(keccak256("1"));
+        bytes memory extraData = abi.encode(l2SequenceNumber);
 
-        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
+        uint256[] memory gameIndices = new uint256[](3);
+        gameIndices[0] = _deployGameThroughFactory(ZK_DISPUTE_GAME_TYPE, claim, extraData);
+        gameIndices[1] = _deployGameThroughFactory(TEE_GAME_TYPE, claim, extraData);
+        gameIndices[2] = _deployGameThroughFactory(FAULT_DISPUTE_GAME_TYPE, claim, extraData);
+
+        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, claim, l2SequenceNumber, gameIndices, 2);
 
         // zk, tee, fault
         address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
@@ -179,12 +176,15 @@ contract DisputeGameRelayTest is Test {
         relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
 
         uint256 l2SequenceNumber = 1;
-        bytes[] memory underlyingExtraData = new bytes[](3);
-        underlyingExtraData[0] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
+        Claim claim = Claim.wrap(keccak256("1"));
+        bytes memory extraData = abi.encode(l2SequenceNumber);
 
-        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
+        uint256[] memory gameIndices = new uint256[](3);
+        gameIndices[0] = _deployGameThroughFactory(ZK_DISPUTE_GAME_TYPE, claim, extraData);
+        gameIndices[1] = _deployGameThroughFactory(TEE_GAME_TYPE, claim, extraData);
+        gameIndices[2] = _deployGameThroughFactory(FAULT_DISPUTE_GAME_TYPE, claim, extraData);
+
+        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, claim, l2SequenceNumber, gameIndices, 2);
 
         // zk, tee, fault
         address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
@@ -211,12 +211,15 @@ contract DisputeGameRelayTest is Test {
         relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
 
         uint256 l2SequenceNumber = 1;
-        bytes[] memory underlyingExtraData = new bytes[](3);
-        underlyingExtraData[0] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
+        Claim claim = Claim.wrap(keccak256("1"));
+        bytes memory extraData = abi.encode(l2SequenceNumber);
 
-        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
+        uint256[] memory gameIndices = new uint256[](3);
+        gameIndices[0] = _deployGameThroughFactory(ZK_DISPUTE_GAME_TYPE, claim, extraData);
+        gameIndices[1] = _deployGameThroughFactory(TEE_GAME_TYPE, claim, extraData);
+        gameIndices[2] = _deployGameThroughFactory(FAULT_DISPUTE_GAME_TYPE, claim, extraData);
+
+        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, claim, l2SequenceNumber, gameIndices, 2);
 
         // check that the required game types are correct
         GameType[] memory requiredGameTypes = anchorStateRegistry.requiredGameTypes();
@@ -270,12 +273,15 @@ contract DisputeGameRelayTest is Test {
         relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
 
         uint256 l2SequenceNumber = 1;
-        bytes[] memory underlyingExtraData = new bytes[](3);
-        underlyingExtraData[0] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
+        Claim claim = Claim.wrap(keccak256("1"));
+        bytes memory extraData = abi.encode(l2SequenceNumber);
 
-        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
+        uint256[] memory gameIndices = new uint256[](3);
+        gameIndices[0] = _deployGameThroughFactory(ZK_DISPUTE_GAME_TYPE, claim, extraData);
+        gameIndices[1] = _deployGameThroughFactory(TEE_GAME_TYPE, claim, extraData);
+        gameIndices[2] = _deployGameThroughFactory(FAULT_DISPUTE_GAME_TYPE, claim, extraData);
+
+        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, claim, l2SequenceNumber, gameIndices, 2);
 
         // zk, tee, fault
         address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
@@ -303,12 +309,16 @@ contract DisputeGameRelayTest is Test {
         relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
 
         uint256 l2SequenceNumber = 1;
-        bytes[] memory underlyingExtraData = new bytes[](3);
-        underlyingExtraData[0] = abi.encodePacked(uint64(l2SequenceNumber), uint64(0), uint64(0));
-        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
+        Claim claim = Claim.wrap(keccak256("1"));
+        bytes memory extraData = abi.encode(l2SequenceNumber);
+        bytes memory kailuaExtraData = abi.encodePacked(uint64(l2SequenceNumber), uint64(0), uint64(0));
 
-        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
+        uint256[] memory gameIndices = new uint256[](3);
+        gameIndices[0] = _deployKailuaGame(claim, kailuaExtraData);
+        gameIndices[1] = _deployGameThroughFactory(TEE_GAME_TYPE, claim, extraData);
+        gameIndices[2] = _deployGameThroughFactory(FAULT_DISPUTE_GAME_TYPE, claim, extraData);
+
+        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, claim, l2SequenceNumber, gameIndices, 2);
 
         // kailua, tee, fault
         address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
@@ -413,10 +423,10 @@ contract DisputeGameRelayTest is Test {
         );
 
         // Set the implementation for the fault dispute game
-        factory.setImplementation(GameType.wrap(0), IDisputeGame(address(faultDisputeGameImpl)));
+        factory.setImplementation(FAULT_DISPUTE_GAME_TYPE, IDisputeGame(address(faultDisputeGameImpl)));
 
         // Set the bond amount for the fault dispute game
-        factory.setInitBond(GameType.wrap(0), FAULT_DISPUTE_GAME_BOND_AMOUNT);
+        factory.setInitBond(FAULT_DISPUTE_GAME_TYPE, FAULT_DISPUTE_GAME_BOND_AMOUNT);
     }
 
     function _deployAndSetTEEDisputeGame() internal {
@@ -497,6 +507,8 @@ contract DisputeGameRelayTest is Test {
         factory.setImplementation(KAILUA_GAME_TYPE, IDisputeGame(kailuaGameImpl));
 
         anchorStateRegistry.setFinalityDelay(KAILUA_GAME_TYPE, ZK_DISPUTE_GAME_FINALIZATION_DELAY_SECONDS);
+
+        kailuaTreasury = IKailuaTreasury(kailuaTreasuryImpl);
     }
 
     function _deployAndSetDisputeGameRelay() internal {
@@ -511,26 +523,27 @@ contract DisputeGameRelayTest is Test {
 
         // Set the implementation for the dispute game relay
         factory.setImplementation(RELAY_GAME_TYPE, IDisputeGame(address(disputeGameRelayImpl)));
-        factory.setInitBond(RELAY_GAME_TYPE, TOTAL_BOND_AMOUNT);
     }
 
-    function _deployRelayGame(RelayGameType[] memory _relayGameTypes, bytes[] memory _underlyingExtraData, uint256 _l2SequenceNumber, uint256 _threshold) internal returns (DisputeGameRelay) {
-        require(_relayGameTypes.length == _underlyingExtraData.length, "Relay game types and underlying extra data must have the same length");
-        
+    function _deployRelayGame(RelayGameType[] memory _relayGameTypes, Claim _claim, uint256 _l2SequenceNumber, uint256[] memory _gameIndices, uint256 _threshold) internal returns (DisputeGameRelay) {
         anchorStateRegistry.setRespectedGameType(RELAY_GAME_TYPE);
         anchorStateRegistry.setRelayGameTypesAndThreshold(_relayGameTypes, _threshold);
 
         // Deploy the relay game
-        Claim claim = Claim.wrap(keccak256("1"));
-        
-        bytes memory relayGameExtraData = abi.encodePacked(_l2SequenceNumber, _relayGameTypes.length);
-        for (uint256 i = 0; i < _relayGameTypes.length; i++) {
-            relayGameExtraData = abi.encodePacked(relayGameExtraData, _relayGameTypes[i].gameType);
-        }
-        for (uint256 i = 0; i < _underlyingExtraData.length; i++) {
-            relayGameExtraData = abi.encodePacked(relayGameExtraData, _underlyingExtraData[i].length, _underlyingExtraData[i]);
-        }
+        bytes memory relayGameExtraData = abi.encodePacked(_l2SequenceNumber, _gameIndices.length, _gameIndices);
 
-        return DisputeGameRelay(address(factory.create{value: TOTAL_BOND_AMOUNT}(RELAY_GAME_TYPE, claim, relayGameExtraData)));
+        return DisputeGameRelay(address(factory.create(RELAY_GAME_TYPE, _claim, relayGameExtraData)));
+    }
+
+    function _deployGameThroughFactory(GameType _gameType, Claim _claim, bytes memory _extraData) internal returns (uint256) {
+        uint256 gameIndex = factory.gameCount();
+        factory.create{value: factory.initBonds(_gameType)}(_gameType, _claim, _extraData);
+        return gameIndex;
+    }
+
+    function _deployKailuaGame(Claim _claim, bytes memory _extraData) internal returns (uint256) {
+        uint256 gameIndex = factory.gameCount();
+        kailuaTreasury.propose{ value: ZK_DISPUTE_GAME_BOND_AMOUNT }(_claim, _extraData);
+        return gameIndex;
     }
 }
