@@ -81,6 +81,12 @@ contract DisputeGameRelay is Clone {
     /// @notice A boolean for whether or not the game type was respected when the game was created.
     bool public wasRespectedGameTypeWhenCreated;
 
+    /// @notice The threshold when the game was created.
+    uint256 public thresholdWhenCreated;
+
+    /// @notice The required game types when the game was created.
+    GameType[] public requiredGameTypesWhenCreated;
+
     /// @notice The underlying dispute games.
     address[] internal _underlyingDisputeGames;
 
@@ -175,6 +181,14 @@ contract DisputeGameRelay is Clone {
             }
         }
 
+        // Required game types are used if game types are respected
+        if (wasRespectedGameTypeWhenCreated) {
+            requiredGameTypesWhenCreated = ANCHOR_STATE_REGISTRY.requiredGameTypes();
+        }
+
+        // Set the threshold for when the game was created.
+        thresholdWhenCreated = ANCHOR_STATE_REGISTRY.threshold();
+
         // Deploy underlying dispute games
         bytes[] memory extraData_ = extraDataArray();
         GameType prevGameType = GAME_TYPE; // relay game type is uint32.max
@@ -234,13 +248,58 @@ contract DisputeGameRelay is Clone {
             gameTypes_[i] = game.gameType();
         }
 
-        // Delegate evaluation to the anchor state registry
-        status_ = ANCHOR_STATE_REGISTRY.evaluateGameStatuses(statuses, gameTypes_);
+        // Check if the number of games defended is greater than the threshold.
+        uint256 numDefenderWins;
+
+        // Check if all games are resolved.
+        bool allGamesResolved = true;
+        
+        for (uint256 i = 0; i < statuses.length; i++) {
+            // Check if the game is required.
+            if (gameTypeIsRequired(gameTypes_[i])) {
+                require(uint256(statuses[i]) != uint256(GameStatus.IN_PROGRESS), "Required game not resolved");
+                if (uint256(statuses[i]) == uint256(GameStatus.CHALLENGER_WINS)) {
+                    status_ = GameStatus.CHALLENGER_WINS;
+                    break;
+                }
+                numDefenderWins++;
+                continue;
+            }
+
+            if (uint256(statuses[i]) == uint256(GameStatus.IN_PROGRESS)) {
+                allGamesResolved = false;
+                continue;
+            }
+
+            if (uint256(statuses[i]) == uint256(GameStatus.DEFENDER_WINS)) {
+                numDefenderWins++;
+            }
+        }
+
+        if (numDefenderWins >= thresholdWhenCreated) {
+            status_ = GameStatus.DEFENDER_WINS;
+        } else if (allGamesResolved && numDefenderWins < thresholdWhenCreated) {
+            status_ = GameStatus.CHALLENGER_WINS;
+        } else {
+            revert("Game not resolved");
+        }
 
         resolvedAt = Timestamp.wrap(uint64(block.timestamp));
 
         // Update the status and emit the resolved event, note that we're performing an assignment here.
         emit Resolved(status = status_);
+    }
+
+    /// @notice Checks if a game type is required.
+    /// @param _gameType The game type.
+    /// @return isRequired_ True if the game type is required, false otherwise.
+    function gameTypeIsRequired(GameType _gameType) public view returns (bool) {
+        for (uint256 i = 0; i < requiredGameTypesWhenCreated.length; i++) {
+            if (GameType.unwrap(requiredGameTypesWhenCreated[i]) == GameType.unwrap(_gameType)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// @notice Getter for the game type.

@@ -267,47 +267,4 @@ contract RelayAnchorStateRegistry is AnchorStateRegistry {
         emit RetirementTimestampSet(block.timestamp);
         emit SoundnessIssue(game, gameType);
     }
-
-    /// @notice Evaluates the game statuses and returns the final status based on threshold logic.
-    /// @param statuses The game statuses.
-    /// @param gameTypes The game types.
-    /// @return The final game status.
-    function evaluateGameStatuses(GameStatus[] memory statuses, GameType[] memory gameTypes) external view returns (GameStatus) {
-        require(statuses.length == gameTypes.length, "Statuses and game types length mismatch");
-        
-        // Check if the number of games defended is greater than the threshold.
-        uint256 numDefenderWins;
-
-        // Check if all games are resolved.
-        bool allGamesResolved = true;
-        
-        for (uint256 i = 0; i < statuses.length; i++) {
-            // Check if the game is required.
-            if (isGameTypeRequired(gameTypes[i])) {
-                require(uint256(statuses[i]) != uint256(GameStatus.IN_PROGRESS), "Required game not resolved");
-                if (uint256(statuses[i]) == uint256(GameStatus.CHALLENGER_WINS)) {
-                    return GameStatus.CHALLENGER_WINS;
-                }
-                numDefenderWins++;
-                continue;
-            }
-
-            if (uint256(statuses[i]) == uint256(GameStatus.IN_PROGRESS)) {
-                allGamesResolved = false;
-                continue;
-            }
-
-            if (uint256(statuses[i]) == uint256(GameStatus.DEFENDER_WINS)) {
-                numDefenderWins++;
-            }
-        }
-
-        if (numDefenderWins >= _threshold) {
-            return GameStatus.DEFENDER_WINS;
-        } else if (allGamesResolved && numDefenderWins < _threshold) {
-            return GameStatus.CHALLENGER_WINS;
-        } else {
-            revert("Game not resolved");
-        }
-    }
 }
