@@ -291,6 +291,32 @@ contract DisputeGameRelayTest is Test {
         assert(faultGameProxy.bondDistributionMode() == BondDistributionMode.NORMAL);
     }
 
+    function testBlacklistUnderlyingGame() public {
+        // Deploy the relay game
+        RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
+        relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
+        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: true});
+        relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
+
+                uint256 l2SequenceNumber = 1;
+        bytes[] memory underlyingExtraData = new bytes[](3);
+        underlyingExtraData[0] = abi.encode(l2SequenceNumber);
+        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
+        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
+
+        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
+
+        // check that the relay game is not blacklisted
+        assert(!anchorStateRegistry.isGameBlacklisted(IDisputeGame(address(relayGame))));
+
+        // blacklist an underlying game
+        address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
+        anchorStateRegistry.blacklistDisputeGame(IDisputeGame(underlyingDisputeGames[0]));
+
+        // check that the relay game is blacklisted
+        assert(anchorStateRegistry.isGameBlacklisted(IDisputeGame(address(relayGame))));
+    }
+
     function _deployContractsAndProxies() internal {
         // Deploy the system config
         systemConfig = new MockSystemConfig();

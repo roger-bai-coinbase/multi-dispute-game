@@ -156,6 +156,19 @@ contract RelayAnchorStateRegistry is AnchorStateRegistry {
         return _finalityDelays[gameType_];
     }
 
+    /// @notice Checks if a game is blacklisted.
+    /// @param _game The game.
+    /// @return True if the game is blacklisted, false otherwise.
+    function isGameBlacklisted(IDisputeGame _game) public view override returns (bool) {
+        if (GameType.unwrap(_game.gameType()) == GameType.unwrap(RELAY_GAME_TYPE)) {
+            address[] memory underlyingDisputeGames = IDisputeGameRelay(address(_game)).underlyingDisputeGames();
+            for (uint256 i = 0; i < underlyingDisputeGames.length; i++) {
+                if (disputeGameBlacklist[IDisputeGame(underlyingDisputeGames[i])]) return true;
+            }
+        }
+        return super.isGameBlacklisted(_game);
+    }
+
     /// @notice Checks if a game is finalized.
     /// @param _game The game.
     /// @return True if the game is finalized, false otherwise.

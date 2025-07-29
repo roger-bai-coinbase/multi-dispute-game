@@ -1,7 +1,16 @@
 diff --git a/packages/contracts-bedrock/src/dispute/AnchorStateRegistry.sol b/packages/contracts-bedrock/src/dispute/AnchorStateRegistry.sol
-index 87f747400..26ac13eaf 100644
+index 87f7474..474e8a5 100644
 --- a/packages/contracts-bedrock/src/dispute/AnchorStateRegistry.sol
 +++ b/packages/contracts-bedrock/src/dispute/AnchorStateRegistry.sol
+@@ -212,7 +212,7 @@ contract AnchorStateRegistry is ProxyAdminOwnedBase, Initializable, Reinitializa
+     /// @notice Determines whether a game is blacklisted.
+     /// @param _game The game to check.
+     /// @return Whether the game is blacklisted.
+-    function isGameBlacklisted(IDisputeGame _game) public view returns (bool) {
++    function isGameBlacklisted(IDisputeGame _game) public view virtual returns (bool) {
+         return disputeGameBlacklist[_game];
+     }
+ 
 @@ -273,7 +273,7 @@ contract AnchorStateRegistry is ProxyAdminOwnedBase, Initializable, Reinitializa
      /// @notice Returns whether a game is finalized.
      /// @param _game The game to check.
