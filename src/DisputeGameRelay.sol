@@ -12,9 +12,6 @@ import {
     Proposal
 } from "optimism/src/dispute/lib/Types.sol";
 import {
-    RelayGameType
-} from "src/RelayAnchorStateRegistry.sol";
-import {
     AnchorRootNotFound,
     AlreadyInitialized,
     UnexpectedRootClaim,
@@ -51,8 +48,11 @@ contract DisputeGameRelay is Clone {
     //                         State Vars                         //
     ////////////////////////////////////////////////////////////////
 
-    /// @notice The game type ID.
-    GameType constant GAME_TYPE = GameType.wrap(type(uint32).max);
+    /// @notice The relay game type.
+    GameType internal constant RELAY_GAME_TYPE = GameType.wrap(uint32(1) << 31);
+
+    /// @notice The game type.
+    GameType internal _gameType;
 
     /// @notice The anchor state registry.
     IRelayAnchorStateRegistry internal immutable ANCHOR_STATE_REGISTRY;
@@ -83,9 +83,6 @@ contract DisputeGameRelay is Clone {
 
     /// @notice The threshold when the game was created.
     uint256 public thresholdWhenCreated;
-
-    /// @notice The required game types when the game was created.
-    GameType[] public requiredGameTypesWhenCreated;
 
     /// @notice The underlying dispute games.
     address[] internal _underlyingDisputeGames;
@@ -163,35 +160,28 @@ contract DisputeGameRelay is Clone {
         createdAt = Timestamp.wrap(uint64(block.timestamp));
 
         // Set whether the game type was respected when the game was created.
-        RelayGameType[] memory relayGameTypes = ANCHOR_STATE_REGISTRY.relayGameTypes();
         GameType[] memory gameTypes_ = gameTypes();
+        _gameType = RELAY_GAME_TYPE;
+        
+        for (uint256 i = 0; i < gameTypes_.length; i++) {
+            uint32 gameType_ = GameType.unwrap(_gameType);
+            gameType_ |= GameType.unwrap(gameTypes_[i]);
+            _gameType = GameType.wrap(gameType_);
+        }
 
         // Respected if:
         // - The game type in the anchor state registry is relay
         // - The number of game types in the anchor state registry is the same as the number of game types of this relay
         // - The game types in the anchor state registry are the same as the game types of this relay
         wasRespectedGameTypeWhenCreated =
-            (GameType.unwrap(ANCHOR_STATE_REGISTRY.respectedGameType()) == GameType.unwrap(GAME_TYPE)) &&
-            (relayGameTypes.length == gameTypes_.length);
-
-        for (uint256 i = 0; i < gameTypes_.length; i++) {
-            if (GameType.unwrap(relayGameTypes[i].gameType) != GameType.unwrap(gameTypes_[i])) {
-                wasRespectedGameTypeWhenCreated = false;
-                break;
-            }
-        }
-
-        // Required game types are used if game types are respected
-        if (wasRespectedGameTypeWhenCreated) {
-            requiredGameTypesWhenCreated = ANCHOR_STATE_REGISTRY.requiredGameTypes();
-        }
+            (GameType.unwrap(ANCHOR_STATE_REGISTRY.respectedGameType()) == GameType.unwrap(_gameType));
 
         // Set the threshold for when the game was created.
         thresholdWhenCreated = ANCHOR_STATE_REGISTRY.threshold();
 
         // Deploy underlying dispute games
         bytes[] memory extraData_ = extraDataArray();
-        GameType prevGameType = GAME_TYPE; // relay game type is uint32.max
+        GameType prevGameType = GameType.wrap(uint32(1) << 31); // relay game type is 1 << 32
         for (uint256 i = 0; i < gameTypes_.length; i++) { 
             // Prevent duplicate game types
             require(prevGameType.raw() > gameTypes_[i].raw(), "Game types must be in descending order");
@@ -240,12 +230,10 @@ contract DisputeGameRelay is Clone {
         // Collect game statuses and types
         address[] memory gameProxies_ = _underlyingDisputeGames;
         GameStatus[] memory statuses = new GameStatus[](gameProxies_.length);
-        GameType[] memory gameTypes_ = new GameType[](gameProxies_.length);
         
         for (uint256 i = 0; i < gameProxies_.length; i++) {
             IDisputeGame game = IDisputeGame(gameProxies_[i]);
             statuses[i] = GameStatus(uint256(game.status()));
-            gameTypes_[i] = game.gameType();
         }
 
         // Check if the number of games defended is greater than the threshold.
@@ -255,17 +243,6 @@ contract DisputeGameRelay is Clone {
         bool allGamesResolved = true;
         
         for (uint256 i = 0; i < statuses.length; i++) {
-            // Check if the game is required.
-            if (gameTypeIsRequired(gameTypes_[i])) {
-                require(uint256(statuses[i]) != uint256(GameStatus.IN_PROGRESS), "Required game not resolved");
-                if (uint256(statuses[i]) == uint256(GameStatus.CHALLENGER_WINS)) {
-                    status_ = GameStatus.CHALLENGER_WINS;
-                    break;
-                }
-                numDefenderWins++;
-                continue;
-            }
-
             if (uint256(statuses[i]) == uint256(GameStatus.IN_PROGRESS)) {
                 allGamesResolved = false;
                 continue;
@@ -290,24 +267,12 @@ contract DisputeGameRelay is Clone {
         emit Resolved(status = status_);
     }
 
-    /// @notice Checks if a game type is required.
-    /// @param _gameType The game type.
-    /// @return isRequired_ True if the game type is required, false otherwise.
-    function gameTypeIsRequired(GameType _gameType) public view returns (bool) {
-        for (uint256 i = 0; i < requiredGameTypesWhenCreated.length; i++) {
-            if (GameType.unwrap(requiredGameTypesWhenCreated[i]) == GameType.unwrap(_gameType)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /// @notice Getter for the game type.
     /// @dev The reference impl should be entirely different depending on the type (fault, validity)
     ///      i.e. The game type should indicate the security model.
     /// @return gameType_ The type of proof system being used.
     function gameType() public view returns (GameType gameType_) {
-        gameType_ = GAME_TYPE;
+        gameType_ = _gameType;
     }
 
     /// @notice Getter for the creator of the dispute game.

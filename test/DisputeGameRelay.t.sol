@@ -5,7 +5,7 @@ import { Test, console2 } from "forge-std/Test.sol";
 
 // Relay Contracts
 // import { DisputeGameRelayFactory } from "src/DisputeGameRelayFactory.sol";
-import { RelayGameType, RelayAnchorStateRegistry } from "src/RelayAnchorStateRegistry.sol";
+import { RelayAnchorStateRegistry } from "src/RelayAnchorStateRegistry.sol";
 import { DisputeGameRelay } from "src/DisputeGameRelay.sol";
 import { IRelayAnchorStateRegistry } from "src/interfaces/IRelayAnchorStateRegistry.sol";
 import { IZKVerifier } from "src/interfaces/IZKVerifier.sol";
@@ -49,10 +49,10 @@ contract DisputeGameRelayTest is Test {
     uint256 public constant ZK_DISPUTE_GAME_FINALIZATION_DELAY_SECONDS = 1 days;
 
     // Game types
-    GameType public constant FAULT_DISPUTE_GAME_TYPE = GameType.wrap(0);
-    GameType public constant TEE_GAME_TYPE = GameType.wrap(733);
-    GameType public constant ZK_DISPUTE_GAME_TYPE = GameType.wrap(1337); // Kailua
-    GameType public constant RELAY_GAME_TYPE = GameType.wrap(type(uint32).max);
+    GameType public constant FAULT_DISPUTE_GAME_TYPE = GameType.wrap(1);
+    GameType public constant TEE_GAME_TYPE = GameType.wrap(uint32(1) << 7);
+    GameType public constant ZK_DISPUTE_GAME_TYPE = GameType.wrap(uint32(1) << 11);
+    GameType public constant RELAY_GAME_TYPE = GameType.wrap(uint32(1) << 31);
 
     // Bond amounts
     uint256 public constant FAULT_DISPUTE_GAME_BOND_AMOUNT = 0.1 ether;
@@ -70,7 +70,6 @@ contract DisputeGameRelayTest is Test {
         _deployAndSetFaultDisputeGame();
         _deployAndSetTEEDisputeGame();
         _deployAndSetZKDisputeGame();
-        _deployAndSetDisputeGameRelay();
 
         // Set the timestamp to after the retirement timestamp
         vm.warp(block.timestamp + 1);
@@ -78,10 +77,10 @@ contract DisputeGameRelayTest is Test {
     }
 
     function testDeployRelayGame() public {
-        RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
-        relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
-        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: false});
-        relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
+        GameType[] memory relayGameTypes = new GameType[](3);
+        relayGameTypes[0] = ZK_DISPUTE_GAME_TYPE;
+        relayGameTypes[1] = TEE_GAME_TYPE;
+        relayGameTypes[2] = FAULT_DISPUTE_GAME_TYPE;
         
         uint256 l2SequenceNumber = 1;
         bytes[] memory underlyingExtraData = new bytes[](3);
@@ -100,7 +99,7 @@ contract DisputeGameRelayTest is Test {
         assertTrue(relayGame.wasRespectedGameTypeWhenCreated());
 
         for (uint256 i = 0; i < relayGameTypes.length; i++) {
-            assertEq(relayGame.gameTypes()[i].raw(), relayGameTypes[i].gameType.raw());
+            assertEq(relayGame.gameTypes()[i].raw(), relayGameTypes[i].raw());
         }
 
         for (uint256 i = 0; i < underlyingExtraData.length; i++) {
@@ -110,7 +109,7 @@ contract DisputeGameRelayTest is Test {
         bytes memory expectedExtraData = abi.encodePacked(l2SequenceNumber, relayGameTypes.length);
 
         for (uint256 i = 0; i < relayGameTypes.length; i++) {
-            expectedExtraData = abi.encodePacked(expectedExtraData, relayGameTypes[i].gameType);
+            expectedExtraData = abi.encodePacked(expectedExtraData, relayGameTypes[i]);
         }
 
         for (uint256 i = 0; i < underlyingExtraData.length; i++) {
@@ -122,10 +121,10 @@ contract DisputeGameRelayTest is Test {
     }
 
     function test2of3TEEAndZK() public {
-        RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
-        relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
-        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: false});
-        relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
+        GameType[] memory relayGameTypes = new GameType[](3);
+        relayGameTypes[0] = ZK_DISPUTE_GAME_TYPE;
+        relayGameTypes[1] = TEE_GAME_TYPE;
+        relayGameTypes[2] = FAULT_DISPUTE_GAME_TYPE;
 
         uint256 l2SequenceNumber = 1;
         bytes[] memory underlyingExtraData = new bytes[](3);
@@ -169,10 +168,10 @@ contract DisputeGameRelayTest is Test {
     function testNullify() public {
         anchorStateRegistry.setBackUpGameType(GameType.wrap(1));
 
-        RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
-        relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
-        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: false});
-        relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
+        GameType[] memory relayGameTypes = new GameType[](3);
+        relayGameTypes[0] = ZK_DISPUTE_GAME_TYPE;
+        relayGameTypes[1] = TEE_GAME_TYPE;
+        relayGameTypes[2] = FAULT_DISPUTE_GAME_TYPE;
 
         uint256 l2SequenceNumber = 1;
         bytes[] memory underlyingExtraData = new bytes[](3);
@@ -200,70 +199,12 @@ contract DisputeGameRelayTest is Test {
         assert(GameType.unwrap(anchorStateRegistry.respectedGameType()) == 1);
     }
 
-    function test2of3RequireTEE() public {
-        RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
-        relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
-        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: true});
-        relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
-
-        uint256 l2SequenceNumber = 1;
-        bytes[] memory underlyingExtraData = new bytes[](3);
-        underlyingExtraData[0] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[1] = abi.encode(l2SequenceNumber);
-        underlyingExtraData[2] = abi.encode(l2SequenceNumber);
-
-        DisputeGameRelay relayGame = _deployRelayGame(relayGameTypes, underlyingExtraData, l2SequenceNumber, 2);
-
-        // check that the required game types are correct
-        GameType[] memory requiredGameTypes = anchorStateRegistry.requiredGameTypes();
-        assertEq(requiredGameTypes.length, 1);
-        assertEq(requiredGameTypes[0].raw(), TEE_GAME_TYPE.raw());
-
-        // zk, tee, fault
-        address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
-
-        MockZKDisputeGame zkGameProxy = MockZKDisputeGame(underlyingDisputeGames[0]);
-        MockTEEDisputeGame teeGameProxy = MockTEEDisputeGame(underlyingDisputeGames[1]);
-        FaultDisputeGame faultGameProxy = FaultDisputeGame(underlyingDisputeGames[2]);
-        
-        // resolve fault game
-        vm.warp(block.timestamp + 7 days + 1);
-        faultGameProxy.resolveClaim(0, 512);
-        faultGameProxy.resolve();
-
-        // resolve zk game
-        zkGameProxy.resolve("");
-
-        // cannot resolve relay game
-        vm.expectRevert("Required game not resolved");
-        relayGame.resolve();
-
-        // resolve tee game
-        outputOracle.proposeL2Output(keccak256("1"), 1, 1, "");
-        teeGameProxy.resolve(0);
-
-        // check that the relay game is resolved   
-        relayGame.resolve();
-        assert(relayGame.status() == GameStatus.DEFENDER_WINS);
-
-        // cannot close yet
-        vm.expectRevert("Required game not finalized");
-        relayGame.closeGame();
-
-        // close relay game after finalizing the tee game
-        vm.warp(block.timestamp + 1 days + 1);
-        relayGame.closeGame();
-
-        // check anchor state updated
-        assert(address(anchorStateRegistry.anchorGame()) == address(relayGame));
-    }
-
     function testBondDistribution() public {
         // Deploy the relay game
-        RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
-        relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
-        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: true});
-        relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
+        GameType[] memory relayGameTypes = new GameType[](3);
+        relayGameTypes[0] = ZK_DISPUTE_GAME_TYPE;
+        relayGameTypes[1] = TEE_GAME_TYPE;
+        relayGameTypes[2] = FAULT_DISPUTE_GAME_TYPE;
 
         uint256 l2SequenceNumber = 1;
         bytes[] memory underlyingExtraData = new bytes[](3);
@@ -293,12 +234,12 @@ contract DisputeGameRelayTest is Test {
 
     function testBlacklistUnderlyingGame() public {
         // Deploy the relay game
-        RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
-        relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
-        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: true});
-        relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
+        GameType[] memory relayGameTypes = new GameType[](3);
+        relayGameTypes[0] = ZK_DISPUTE_GAME_TYPE;
+        relayGameTypes[1] = TEE_GAME_TYPE;
+        relayGameTypes[2] = FAULT_DISPUTE_GAME_TYPE;
 
-                uint256 l2SequenceNumber = 1;
+        uint256 l2SequenceNumber = 1;
         bytes[] memory underlyingExtraData = new bytes[](3);
         underlyingExtraData[0] = abi.encode(l2SequenceNumber);
         underlyingExtraData[1] = abi.encode(l2SequenceNumber);
@@ -387,10 +328,10 @@ contract DisputeGameRelayTest is Test {
         );
 
         // Set the implementation for the fault dispute game
-        factory.setImplementation(GameType.wrap(0), IDisputeGame(address(faultDisputeGameImpl)));
+        factory.setImplementation(FAULT_DISPUTE_GAME_TYPE, IDisputeGame(address(faultDisputeGameImpl)));
 
         // Set the bond amount for the fault dispute game
-        factory.setInitBond(GameType.wrap(0), FAULT_DISPUTE_GAME_BOND_AMOUNT);
+        factory.setInitBond(FAULT_DISPUTE_GAME_TYPE, FAULT_DISPUTE_GAME_BOND_AMOUNT);
     }
 
     function _deployAndSetTEEDisputeGame() internal {
@@ -408,7 +349,7 @@ contract DisputeGameRelayTest is Test {
         );
 
         // Set the implementation for the TEEDisputeGame
-        factory.setImplementation(GameType.wrap(733), IDisputeGame(address(teeDisputeGameImpl)));
+        factory.setImplementation(TEE_GAME_TYPE, IDisputeGame(address(teeDisputeGameImpl)));
 
         anchorStateRegistry.setFinalityDelay(TEE_GAME_TYPE, ZK_DISPUTE_GAME_FINALIZATION_DELAY_SECONDS);
     }
@@ -429,15 +370,15 @@ contract DisputeGameRelayTest is Test {
         );
 
         // Set the implementation for the ZKDisputeGame 
-        factory.setImplementation(GameType.wrap(1337), IDisputeGame(address(zkDisputeGameImpl)));
+        factory.setImplementation(ZK_DISPUTE_GAME_TYPE, IDisputeGame(address(zkDisputeGameImpl)));
 
         // Set the bond amount for the ZKDisputeGame
-        factory.setInitBond(GameType.wrap(1337), ZK_DISPUTE_GAME_BOND_AMOUNT);
+        factory.setInitBond(ZK_DISPUTE_GAME_TYPE, ZK_DISPUTE_GAME_BOND_AMOUNT);
 
         anchorStateRegistry.setFinalityDelay(ZK_DISPUTE_GAME_TYPE, ZK_DISPUTE_GAME_FINALIZATION_DELAY_SECONDS);
     }
 
-    function _deployAndSetDisputeGameRelay() internal {
+    function _deployAndSetDisputeGameRelay(GameType relayGameType) internal {
 
     // Deploy the dispute game relay implementation
     DisputeGameRelay disputeGameRelayImpl = new DisputeGameRelay(
@@ -448,27 +389,33 @@ contract DisputeGameRelayTest is Test {
     );
 
         // Set the implementation for the dispute game relay
-        factory.setImplementation(RELAY_GAME_TYPE, IDisputeGame(address(disputeGameRelayImpl)));
-        factory.setInitBond(RELAY_GAME_TYPE, TOTAL_BOND_AMOUNT);
+        factory.setImplementation(relayGameType, IDisputeGame(address(disputeGameRelayImpl)));
+        factory.setInitBond(relayGameType, TOTAL_BOND_AMOUNT);
     }
 
-    function _deployRelayGame(RelayGameType[] memory _relayGameTypes, bytes[] memory _underlyingExtraData, uint256 _l2SequenceNumber, uint256 _threshold) internal returns (DisputeGameRelay) {
+    function _deployRelayGame(GameType[] memory _relayGameTypes, bytes[] memory _underlyingExtraData, uint256 _l2SequenceNumber, uint256 _threshold) internal returns (DisputeGameRelay) {
         require(_relayGameTypes.length == _underlyingExtraData.length, "Relay game types and underlying extra data must have the same length");
         
-        anchorStateRegistry.setRespectedGameType(RELAY_GAME_TYPE);
-        anchorStateRegistry.setRelayGameTypesAndThreshold(_relayGameTypes, _threshold);
+        uint32 relayGameType = GameType.unwrap(RELAY_GAME_TYPE);
+        for (uint256 i = 0; i < _relayGameTypes.length; i++) {
+            relayGameType |= GameType.unwrap(_relayGameTypes[i]);
+        }
+        anchorStateRegistry.setRespectedGameType(GameType.wrap(relayGameType));
+        anchorStateRegistry.setThreshold(_threshold);
+
+        _deployAndSetDisputeGameRelay(GameType.wrap(relayGameType));
 
         // Deploy the relay game
         Claim claim = Claim.wrap(keccak256("1"));
         
         bytes memory relayGameExtraData = abi.encodePacked(_l2SequenceNumber, _relayGameTypes.length);
         for (uint256 i = 0; i < _relayGameTypes.length; i++) {
-            relayGameExtraData = abi.encodePacked(relayGameExtraData, _relayGameTypes[i].gameType);
+            relayGameExtraData = abi.encodePacked(relayGameExtraData, _relayGameTypes[i]);
         }
         for (uint256 i = 0; i < _underlyingExtraData.length; i++) {
             relayGameExtraData = abi.encodePacked(relayGameExtraData, _underlyingExtraData[i].length, _underlyingExtraData[i]);
         }
 
-        return DisputeGameRelay(address(factory.create{value: TOTAL_BOND_AMOUNT}(RELAY_GAME_TYPE, claim, relayGameExtraData)));
+        return DisputeGameRelay(address(factory.create{value: TOTAL_BOND_AMOUNT}(GameType.wrap(relayGameType), claim, relayGameExtraData)));
     }
 }
