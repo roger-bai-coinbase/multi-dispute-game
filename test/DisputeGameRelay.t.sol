@@ -300,7 +300,9 @@ contract DisputeGameRelayTest is Test {
         // 1 day delay for bond withdrawal
         vm.warp(block.timestamp + 1 days);
 
+        assertEq(address(this).balance, 0);
         relayGame.claimCredit();
+        assertEq(address(this).balance, TOTAL_BOND_AMOUNT);
     }
 
     receive() external payable {}

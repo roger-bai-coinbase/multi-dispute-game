@@ -88,6 +88,8 @@ contract MockZKDisputeGame is Clone {
     /// @notice A boolean for whether or not the game type was respected when the game was created.
     bool public wasRespectedGameTypeWhenCreated;
 
+    uint256 public proposalBond;
+
     /// @param _params Parameters for creating a new DisputeGameRelay.
     constructor(ZKConstructorParams memory _params) {
         // Set up initial game state.
@@ -157,6 +159,9 @@ contract MockZKDisputeGame is Clone {
         // Set whether the game type was respected when the game was created.
         wasRespectedGameTypeWhenCreated =
             (GameType.unwrap(ANCHOR_STATE_REGISTRY.respectedGameType()) == GameType.unwrap(GAME_TYPE));
+
+        // Deposit the bond.
+        proposalBond = msg.value;
     }
 
     /// @notice The l2BlockNumber of the disputed output root in the `L2OutputOracle`.
@@ -282,6 +287,13 @@ contract MockZKDisputeGame is Clone {
     ////////////////////////////////////////////////////////////////
     //                       MISC EXTERNAL                        //
     ////////////////////////////////////////////////////////////////
+
+    function claimCredit(address) public {
+        closeGame();
+        require(address(this).balance > 0, "Nothing to claim");
+        (bool success, ) = payable(gameCreator()).call{ value: address(this).balance }("");
+        require(success, "Transfer failed");
+    }
 
     function closeGame() public {
         // We won't close the game if the system is currently paused. Paused games are temporarily
