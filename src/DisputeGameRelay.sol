@@ -26,6 +26,7 @@ import {
 
 // Interfaces
 import { IRelayAnchorStateRegistry } from "src/interfaces/IRelayAnchorStateRegistry.sol";
+import { IDisputeGameWithBond } from "src/interfaces/IDisputeGameWithBond.sol";
 import { IDisputeGame, IDisputeGameFactory } from "optimism/src/dispute/AnchorStateRegistry.sol";
 
 contract DisputeGameRelay is Clone {
@@ -419,6 +420,22 @@ contract DisputeGameRelay is Clone {
     //                       MISC EXTERNAL                        //
     ////////////////////////////////////////////////////////////////
 
+    function claimCredit() public {
+        closeGame();
+
+        for (uint256 i = 0; i < _underlyingDisputeGames.length; i++) {
+            try IDisputeGameWithBond(address(_underlyingDisputeGames[i])).claimCredit(address(this)) {
+                // Do nothing
+            } catch {
+                // Do nothing
+            }
+        }
+
+        require(address(this).balance > 0, "Nothing to claim");
+        (bool success, ) = payable(gameCreator()).call{ value: address(this).balance }("");
+        require(success, "Transfer failed");
+    }
+
     function closeGame() public {
         // We won't close the game if the system is currently paused. Paused games are temporarily
         // invalid which would cause the game to go into refund mode and potentially cause some
@@ -449,5 +466,16 @@ contract DisputeGameRelay is Clone {
 
         // Emit an event to signal that the game has been closed.
         emit GameClosed();
+    }
+
+    receive() external payable {
+        bool senderIsUnderlyingDisputeGame = false;
+        for (uint256 i = 0; i < _underlyingDisputeGames.length; i++) {
+            if (msg.sender == address(_underlyingDisputeGames[i])) {
+                senderIsUnderlyingDisputeGame = true;
+                break;
+            }
+        }
+        require(senderIsUnderlyingDisputeGame, "Sender is not an underlying dispute game");
     }
 }

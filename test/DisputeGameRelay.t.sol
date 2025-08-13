@@ -262,7 +262,7 @@ contract DisputeGameRelayTest is Test {
         // Deploy the relay game
         RelayGameType[] memory relayGameTypes = new RelayGameType[](3);
         relayGameTypes[0] = RelayGameType({gameType: ZK_DISPUTE_GAME_TYPE, required: false});
-        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: true});
+        relayGameTypes[1] = RelayGameType({gameType: TEE_GAME_TYPE, required: false});
         relayGameTypes[2] = RelayGameType({gameType: FAULT_DISPUTE_GAME_TYPE, required: false});
 
         uint256 l2SequenceNumber = 1;
@@ -276,20 +276,34 @@ contract DisputeGameRelayTest is Test {
         // zk, tee, fault
         address[] memory underlyingDisputeGames = relayGame.underlyingDisputeGames();
 
+        MockZKDisputeGame zkGameProxy = MockZKDisputeGame(underlyingDisputeGames[0]);
         FaultDisputeGame faultGameProxy = FaultDisputeGame(underlyingDisputeGames[2]);
+
+        // resolve zk game
+        zkGameProxy.resolve("");
 
         // resolve fault game
         vm.warp(block.timestamp + 7 days + 1);
         faultGameProxy.resolveClaim(0, 512);
         faultGameProxy.resolve();
 
+        // resolve relay game
+        relayGame.resolve();
+
         // close fault game
         vm.warp(block.timestamp + 14 days + 1);
-        faultGameProxy.closeGame();
+        faultGameProxy.claimCredit(address(relayGame));
 
         // check that the bond distribution mode is normal
         assert(faultGameProxy.bondDistributionMode() == BondDistributionMode.NORMAL);
+
+        // 1 day delay for bond withdrawal
+        vm.warp(block.timestamp + 1 days);
+
+        relayGame.claimCredit();
     }
+
+    receive() external payable {}
 
     function testBlacklistUnderlyingGame() public {
         // Deploy the relay game
@@ -469,6 +483,6 @@ contract DisputeGameRelayTest is Test {
             relayGameExtraData = abi.encodePacked(relayGameExtraData, _underlyingExtraData[i].length, _underlyingExtraData[i]);
         }
 
-        return DisputeGameRelay(address(factory.create{value: TOTAL_BOND_AMOUNT}(RELAY_GAME_TYPE, claim, relayGameExtraData)));
+        return DisputeGameRelay(payable(address(factory.create{value: TOTAL_BOND_AMOUNT}(RELAY_GAME_TYPE, claim, relayGameExtraData))));
     }
 }
