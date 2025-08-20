@@ -32,7 +32,6 @@ contract MockZKDisputeGame is Clone {
     //                         Structs                            //
     ////////////////////////////////////////////////////////////////
 
-    /// @notice Parameters for creating a new DisputeGameRelay.
     struct ZKConstructorParams {
         GameType gameType;
         IRelayAnchorStateRegistry anchorStateRegistry;

@@ -307,7 +307,7 @@ contract DisputeGameRelay is Clone {
     /// @dev The reference impl should be entirely different depending on the type (fault, validity)
     ///      i.e. The game type should indicate the security model.
     /// @return gameType_ The type of proof system being used.
-    function gameType() public view returns (GameType gameType_) {
+    function gameType() public pure returns (GameType gameType_) {
         gameType_ = GAME_TYPE;
     }
 
@@ -390,7 +390,7 @@ contract DisputeGameRelay is Clone {
     /// @return gameType_ The type of proof system being used.
     /// @return rootClaim_ The root claim of the DisputeGame.
     /// @return extraData_ Any extra data supplied to the dispute game contract by the creator.
-    function gameData() external view returns (GameType gameType_, Claim rootClaim_, bytes memory extraData_) {
+    function gameData() external pure returns (GameType gameType_, Claim rootClaim_, bytes memory extraData_) {
         gameType_ = gameType();
         rootClaim_ = rootClaim();
         extraData_ = extraData();

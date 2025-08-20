@@ -18,4 +18,5 @@ interface IRelayAnchorStateRegistry is IAnchorStateRegistry {
     function backUpGameType() external view returns (GameType);
     function backUpGameTypes() external view returns (RelayGameType[] memory);
     function evaluateGameStatuses(GameStatus[] memory statuses, GameType[] memory gameTypes) external view returns (GameStatus);
+    function finalityDelay(GameType gameType_) external view returns (uint256);
 }
