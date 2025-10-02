@@ -1,17 +1,15 @@
-## Foundry
+## Multiproofs
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+This is a prototype for what a multiproof system may look like for the OP-stack. 
 
-Foundry consists of:
+A 2-of-3 proof system with underlying proof systems TEE, ZK, and OP was chosen based on this [proposal](https://ethereum-magicians.org/t/a-simple-l2-security-and-finalization-roadmap/23309). Advantanges of this design:
+- A way for proposals to resolve quickly via the TEE and ZK proof systems
+- A way for proposals to resolve permissionlessly via the ZK and OP proof systems
+- Ensuring that permissioned systems alone cannot resolve a proposal
+- Building upon existing security where any proposal requires the TEE or OP systems to resolve
+- Experimental proof systems, mainly ZK, cannot resolve by themselves
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
-
-## Documentation
-
-https://book.getfoundry.sh/
+This project is also prototyping this [proposal](https://ethereum-magicians.org/t/protecting-zk-based-rollups-against-invalid-proposals-that-pass-verification/25105), where an automated system is implemented in the proof system to protect against soundness issues.
 
 ## Usage
 
@@ -31,42 +29,4 @@ $ forge build
 
 ```shell
 $ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
 ```
